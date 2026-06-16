@@ -1,68 +1,73 @@
 import streamlit as st
+import akshare as ak
 import pandas as pd
-import numpy as np
 
-st.set_page_config(page_title="A股AI交易仪表盘V2", layout="wide")
+st.set_page_config(page_title="A股AI交易系统 V3", layout="wide")
 
-st.title("📊 A股AI交易系统 V2（升级版）")
-
-# =========================
-# 1️⃣ 模拟板块数据（后面可换真实数据）
-# =========================
-data = {
-    "板块": ["AI芯片", "算力", "光模块", "数据中心", "机器人", "电力AI"],
-    "涨跌幅": [3.2, 2.1, -0.5, 1.8, 4.5, 0.6],
-    "成交热度": [80, 70, 40, 60, 90, 50]
-}
-
-df = pd.DataFrame(data)
+st.title("📊 A股AI交易系统 V3（真实数据版）")
 
 # =========================
-# 2️⃣ 计算“强度评分”
+# 1️⃣ 获取真实A股数据
 # =========================
-df["强度评分"] = df["涨跌幅"] * 0.7 + df["成交热度"] * 0.3
+@st.cache_data(ttl=300)
+def get_data():
+    df = ak.stock_zh_a_spot_em()
+    return df
+
+df = get_data()
 
 # =========================
-# 3️⃣ 市场状态判断
+# 2️⃣ 数据清洗
 # =========================
-avg_strength = df["强度评分"].mean()
+df = df[["名称", "最新价", "涨跌幅", "成交额"]]
+df["涨跌幅"] = pd.to_numeric(df["涨跌幅"], errors="coerce")
+df["成交额"] = pd.to_numeric(df["成交额"], errors="coerce")
 
-if avg_strength > 60:
-    market_state = "🔥 主升行情（积极做多）"
-    signal = "✔ 可重仓"
-elif avg_strength > 40:
-    market_state = "🟡 震荡行情（控制仓位）"
-    signal = "⚠ 轻仓参与"
+# =========================
+# 3️⃣ 市场情绪计算
+# =========================
+up_ratio = (df["涨跌幅"] > 0).mean() * 100
+avg_change = df["涨跌幅"].mean()
+
+# =========================
+# 4️⃣ 市场状态判断
+# =========================
+if avg_change > 1 and up_ratio > 55:
+    state = "🔥 主升行情"
+    signal = "✔ 重仓"
+elif avg_change > 0:
+    state = "🟡 震荡行情"
+    signal = "⚠ 控仓"
 else:
-    market_state = "🔴 退潮行情（空仓为主）"
-    signal = "❌ 禁止交易"
+    state = "🔴 退潮行情"
+    signal = "❌ 空仓"
 
 # =========================
-# 4️⃣ 展示核心指标
+# 5️⃣ 展示核心指标
 # =========================
 col1, col2, col3 = st.columns(3)
 
-col1.metric("市场状态", market_state)
-col2.metric("交易信号", signal)
-col3.metric("平均强度", round(avg_strength, 2))
+col1.metric("市场状态", state)
+col2.metric("上涨比例", f"{up_ratio:.2f}%")
+col3.metric("平均涨跌幅", f"{avg_change:.2f}%")
 
 # =========================
-# 5️⃣ 板块排名
+# 6️⃣ 板块排名（简化版）
 # =========================
-st.subheader("📊 板块强度排行")
+st.subheader("📊 个股强度排行（前50）")
 
-df_sorted = df.sort_values("强度评分", ascending=False)
+df_sorted = df.sort_values("涨跌幅", ascending=False).head(50)
 
 st.dataframe(df_sorted)
 
 # =========================
-# 6️⃣ 结论区
+# 7️⃣ AI结论
 # =========================
-st.subheader("🧠 AI结论")
+st.subheader("🧠 AI交易判断")
 
-if avg_strength > 60:
-    st.success("当前市场处于资金推动阶段，可围绕AI核心板块操作")
-elif avg_strength > 40:
-    st.warning("市场轮动明显，只能做短线")
+if "主升" in state:
+    st.success("当前市场强势，可围绕AI与主线板块操作")
+elif "震荡" in state:
+    st.warning("市场分化，只做短线")
 else:
-    st.error("市场风险较高，建议降低交易频率")
+    st.error("市场风险较高，建议空仓或轻仓")
